@@ -13,19 +13,19 @@
 		If the files are macro enabled it will save it as the new file type execpt a Macro enabled file
 		It will recursively search all subfolders and create a new upgraded copy of the file next to it
 	
-	.PARAMETER Directory
+	.PARAMETER --Directory
 		Put the Directory Path here.
 	
-	.PARAMETER RemoveOriginal
+	.PARAMETER --RemoveOriginal
 		If this switch is set, it will remove the original document after conversion. This is mutually exclusive with the Archive Switch.
 
-	.PARAMETER Archive
+	.PARAMETER --Archive
 		If this switch is set, it will move the original document to a subfolder after conversion. This is mutually exclusive with the RemoveOriginal Switch.
 
-    .PARAMETER Delay
+    .PARAMETER --Delay
 		This sets a delay in milliseconds for every file, it allows office to catchup if you are getting a lot of errors like "This Command is not available." The Default is 100 milliseconds.
 
-    .PARAMETER Debugging
+    .PARAMETER --Debugging
         Adds additional information to the log file.
 
 #>
@@ -34,7 +34,7 @@ param
 (
 	# This is the directory of the files that will be searched recursively.
 	[Parameter(Mandatory = $false,
-		Position = 0)]
+			   Position = 0)]
 	[Alias('Path')]
 	[System.String]$Directory,
 	[Parameter(Mandatory = $false, ParameterSetName = "Remove", HelpMessage = "If this switch is set, it will remove the original document after conversion.")]
@@ -69,13 +69,15 @@ $env:POWERSHELL_TELEMETRY_OPTOUT = $true
 ##Functions block.
 
 #Maybe Streamline this.
-function Start-RemovePrompt {
+function Start-RemovePrompt
+{
 	Write-Output ""
 	Write-Output "--------------------------------------------------------"
 	Write-Output "Note: This will permanently delete the original files, with no way to recover it."
 	$RemoveChoice = Read-Host "Do you want to remove the original files after conversion? (Y/N) (Default is No)"
 	Write-Output "--------------------------------------------------------"
-	switch ($RemoveChoice.ToLower()) {
+	switch ($RemoveChoice.ToLower())
+	{
 		y {
 			$Script:Remove = $True
 		}
@@ -97,12 +99,14 @@ function Start-RemovePrompt {
 	
 }
 #Maybe Streamline this.
-function Start-ArchivePrompt {
+function Start-ArchivePrompt
+{
 	Write-Output ""
 	Write-Output "--------------------------------------------------------"
 	Write-Output "Note: Archiving the files will move the originals to a new sub-folder called LegacyFileArchive in the same directory."
 	$ArchiveChoice = Read-Host "Do you want to archive the original files after conversion? (Y/N) (Default is No)"
-	switch ($ArchiveChoice.ToLower()) {
+	switch ($ArchiveChoice.ToLower())
+	{
 		y {
 			$Script:DoArchive = $True
 		}
@@ -124,10 +128,13 @@ function Start-ArchivePrompt {
 	
 }
 
-function Start-InteractivePrompt {
-	If ($Script:InteractiveMode) {
+function Start-InteractivePrompt
+{
+	If ($Script:InteractiveMode)
+	{
 		$AgainChoice = Read-Host "Would you like to do another directory? (Y/N) (Default is No)"
-		switch ($AgainChoice.ToLower()) {
+		switch ($AgainChoice.ToLower())
+		{
 			y {
 				return $True
 			}
@@ -148,244 +155,329 @@ function Start-InteractivePrompt {
 			}
 		}
 	}
-	else {
+	else
+	{
 		return $false
 	}
 }
 
-function Set-OriginalTime ($NewDocument, $OriginalDocument) {
-	(Get-ChildItem -Path $NewDocument).CreationTime = $OriginalDocument.CreationTime
-	(Get-ChildItem -Path $NewDocument).LastWriteTime = $OriginalDocument.LastWriteTime
+function Set-OriginalTime ($NewDocumentX, $NewDocumentM, $OriginalDocument)
+{
 	
+	if (Test-Path $NewDocumentX)
+	{
+		(Get-ChildItem -Path $NewDocumentX).CreationTime = $OriginalDocument.CreationTime
+		(Get-ChildItem -Path $NewDocumentX).LastWriteTime = $OriginalDocument.LastWriteTime
+	}
+	elseif (Test-Path $NewDocumentM)
+	{
+		(Get-ChildItem -Path $NewDocumentM).CreationTime = $OriginalDocument.CreationTime
+		(Get-ChildItem -Path $NewDocumentM).LastWriteTime = $OriginalDocument.LastWriteTime
+	}
 }
-function Remove-OriginalFile ($File, $DoRemove) {
-	if ($DoRemove) {
+
+function Remove-OriginalFile ($File, $DoRemove)
+{
+	if ($DoRemove)
+	{
 		Write-Output "Removing $File"
 		Remove-Item $($File.Fullname) -Force
 	}
 }
 
-function Convert-Excel ($Document, $CopyExists, $SaveName) {
+function Convert-Excel ($Document, $CopyExists)
+{
 	$ObX = $Document.ToString() + "x"
 	$ObM = $Document.ToString() + "m"
 	
 	New-Variable -Name DoRemove
 	New-Variable -Name PasswordSkip
+	New-Variable -Name SaveName
+	New-Variable -Name SaveFormat
 	
 	$Error.Clear()
 	#Due to the way excel handles password protected workbooks, it need to continue with failures. It will try with a blank password, and will skip it if it fails.
-	Try {
-		$ExcelWorkbook = $Script:ExcelApp.WorkBooks.Open($Document.Fullname, 0, $True, 5, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, "xlRepairFile")
+	Try
+	{
+		$ExcelWorkbook = $Script:ExcelApp.WorkBooks.Open($Document.Fullname, 0, $True, 5, "")
 		Start-SystemPause
 	}
 	catch [System.Management.Automation.RuntimeException] {
-		Write-Output "Skipping password protected workbook $($Document.FullName)"
-		$PasswordSkip = $true
+		#Write-Output "Skipping password protected workbook $($Document.FullName)"
+		#$PasswordSkip = $true
 	}
-	catch {
+	catch
+	{
 		Write-Output "$($Document.FullName) Open Failure"
 		Set-ErrorToLog -File $Document
 	}
 	
-	if ($PasswordSkip) {
+	if ($PasswordSkip)
+	{
 		"Skipped $($Document.FullName) due to password protection" | Out-File $script:ErrorFile -Append
 	}
-	
-	try {
-		Try {
-			if ($ExcelWorkbook.HasVBProject) {
-				$SaveFormat = [Enum]::Parse([Microsoft.Office.Interop.Excel.XlFileFormat], "xlOpenXMLWorkbookMacroEnabled")
-			}
-			else {
-				$SaveFormat = [Enum]::Parse([Microsoft.Office.Interop.Excel.XlFileFormat], "xlOpenXMLWorkbook")
-			}
-			
-			
-			$ExcelWorkbook.SaveAs([System.Object]$SaveName, $SaveFormat)
-			
-			
-			if (($Script:Remove) -and ($?) -and ($CopyExists)) {
-				$DoRemove = $true
-			}
-		}
-		finally {
-			
-			$ExcelWorkbook.Close()
-		}
-		if ($SaveName -eq "xlOpenXMLWorkbook") {
-			Set-OriginalTime -NewDocument $ObX -OriginalDocument $ExcelWorkbook
-		}
-		elseif ($SaveName -eq "xlOpenXMLWorkbookMacroEnabled") {
-			Set-OriginalTime -NewDocument $ObM -OriginalDocument $ExcelWorkbook
-		}
-		
-		Remove-OriginalFile -File $Document -DoRemove $DoRemove
+	if ($ExcelWorkbook.HasVBProject)
+	{
+		$SaveFormat = [Enum]::Parse([Microsoft.Office.Interop.Excel.XlFileFormat], "xlOpenXMLWorkbookMacroEnabled")
+		$SaveName = $ObM
 	}
-	catch {
+	else
+	{
+		$SaveFormat = [Enum]::Parse([Microsoft.Office.Interop.Excel.XlFileFormat], "xlOpenXMLWorkbook")
+		$SaveName = $ObX
+	}
+	
+	$ExcelWorkbook.SaveAs([system.object]$SaveName, $SaveFormat)
+	
+	try
+	{
+		
+		$ExcelWorkbook.Close()
+		
+		Set-OriginalTime -NewDocumentX $ObX -NewDocumentM $ObM -OriginalDocument $ExcelWorkbook
+		
+		
+	}
+	catch
+	{
 		Write-Output "Failure on file $($Document.FullName)"
 		Set-ErrorToLog -File $Document
 	}
-	finally {
+	finally
+	{
+		Remove-OriginalFile -File $Document -DoRemove $DoRemove
 		Remove-Variable -Name PasswordSkip
+		Remove-Variable -Name SaveName
+		Remove-Variable -Name SaveFormat
 	}
-		
+	
 }
 
 
-function Convert-Word($Document, $CopyExists, $SaveName) {
+function Convert-Word($Document, $CopyExists)
+{
 	New-Variable -Name DoRemove
 	New-Variable -Name PasswordSkip
 	New-Variable -Name SaveFormat
+	New-Variable -Name SaveName
 	
 	$ObX = $Document.ToString() + "x"
 	$ObM = $Document.ToString() + "m"
-	try {
+	try
+	{
 		$Error.Clear()
-		try {
+		try
+		{
 			$WordDocument = $Script:WordApp.Documents.Open($Document.Fullname, $false, $true, $false, "")
 			Start-SystemPause
 		}
-		catch {
-			if ($Debugging.IsPresent) {
+		catch
+		{
+			if ($Debugging.IsPresent)
+			{
+				"Word Open Fail" | Out-File $script:ErrorFile -Append
 				Set-ErrorToLog -File $Document
 			}
 		}
 		
-		if ($WordDocument.HasVBProject) {
+		if ($WordDocument.HasVBProject)
+		{
 			$SaveFormat = [Enum]::Parse([Microsoft.Office.Interop.Word.WdSaveFormat], "wdFormatXMLDocumentMacroEnabled")
+			$SaveName = $ObM
 		}
-		else {
+		else
+		{
 			$SaveFormat = [Enum]::Parse([Microsoft.Office.Interop.Word.WdSaveFormat], "wdFormatXMLDocument")
+			$SaveName = $ObX
 		}
-		try {
+		try
+		{
 			$WordDocument.Convert()
 		}
-		catch {
-			if ($Debugging.IsPresent) {
-				"Word Catch 1" | Out-File $script:ErrorFile -Append
+		catch
+		{
+			if ($Debugging.IsPresent)
+			{
+				"Word Convert Fail" | Out-File $script:ErrorFile -Append
 			}
 			
 			Set-ErrorToLog -File $Document
 		}
-		
-		$WordDocument.SaveAs2([System.Object]$SaveName, $SaveFormat)
-		
-		if (($Script:Remove) -and ($?) -and ($CopyExists)) {
-			$DoRemove = $true
+		try
+		{
+			$WordDocument.SaveAs2([System.Object]$SaveName, $SaveFormat)
 		}
-		Start-SystemPause
-		$WordDocument.Close()
-		
-		if ($SaveName -eq "wdFormatXMLDocument") {
-			Set-OriginalTime -NewDocument $ObX -OriginalDocument $WordDocument
-		}
-		elseif ($SaveName -eq "wdFormatXMLDocumentMacroEnabled") {
-			Set-OriginalTime -NewDocument $ObM -OriginalDocument $WordDocument
-			
-		}
-		
-		Remove-OriginalFile -File $Document -DoRemove $DoRemove
-		
-	}
-	catch {
-		Write-Output "Failure on file $($Document.FullName)"
-		if ($Debugging.IsPresent) {
-			"Word Catch 2" | Out-File $script:ErrorFile -Append {
+		catch
+		{
+			if ($Debugging.IsPresent)
+			{
+				"Word SaveAs2 Fail" | Out-File $script:ErrorFile -Append
 				
 			}
-			Set-ErrorToLog -File $Document
+			
+			
+			if (($Script:Remove) -and ($?) -and ($CopyExists))
+			{
+				$DoRemove = $true
+			}
+			
+			Start-SystemPause
+			try
+			{
+				$WordDocument.Close()
+			}
+			Catch
+			{
+				if ($Debugging.IsPresent)
+				{
+					"Word Close Fail" | Out-File $script:ErrorFile -Append {
+						
+					}
+				}
+			}
+			
+			Set-OriginalTime -NewDocumentX $ObX -NewDocumentM $ObM -OriginalDocument $WordDocument
+			
+			Remove-OriginalFile -File $Document -DoRemove $DoRemove
+			
 		}
-		finally
-		{
-			Remove-Variable -Name PasswordSkip
-			Remove-Variable -Name SaveFormat
-		}
-		
 		
 	}
+	catch
+	{
+		Write-Output "Failure on file $($Document.FullName)"
+		if ($Debugging.IsPresent)
+		{
+			"Word General Fail" | Out-File $script:ErrorFile -Append
+			
+			
+			Set-ErrorToLog -File $Document
+		}
+	}
+	
+	finally
+	{
+		Remove-Variable -Name PasswordSkip
+		Remove-Variable -Name SaveFormat
+		Remove-Variable -Name SaveName
+	}
+	
 }
-function Convert-PowerPoint ($Document, $CopyExists, $SaveName) {
+
+function Convert-PowerPoint ($Document, $CopyExists)
+{
 	New-Variable -Name DoRemove
+	New-Variable -Name SaveName
+	New-Variable -Name OpenWrite
 	
 	$ObX = $Document.ToString() + "x"
 	$ObM = $Document.ToString() + "m"
-	try {
-		try {
+	try
+	{
+		try
+		{
 			
 			$Error.Clear()
-			$PPPresentation = $Script:PowerPointApp.Presentations.Open2007($Document.Fullname, 0, 0, $False, $True)
+			$PPPresentation = $Script:PowerPointApp.Presentations.Open2007($Document.Fullname, $false, $True, $False, $True)
+			$OpenWrite = $true
 			Start-SystemPause
 		}
+		
 		Catch [System.Runtime.InteropServices.COMException] {
-			if ($Debugging.IsPresent) {
+			if ($Debugging.IsPresent)
+			{
 				"$($Document.FullName) | Open2007 fail." | Out-File -FilePath $Script:ErrorFile -Append
 			}
 			Write-Output "Conversion failed. Unable to open the Presentation $($Document.FullName)"
 		}
+		catch
+		{
+			
+			$PPPresentation = $Script:PowerPointApp.Presentations.Open2007($Document.Fullname, $True, $True, $False, $True)
+			Start-SystemPause
+		}
 		
-		if ($PPPresentation.HasVBProject) {
+		if ($PPPresentation.HasVBProject)
+		{
 			$SaveFormat = [Enum]::Parse([Microsoft.Office.Interop.PowerPoint.PpSaveAsFileType], "ppSaveAsOpenXMLPresentationMacroEnabled")
+			$SaveName = $ObM
 		}
-		else {
+		else
+		{
 			$SaveFormat = [Enum]::Parse([Microsoft.Office.Interop.PowerPoint.PpSaveAsFileType], "ppSaveAsOpenXMLPresentation")
+			$SaveName = $ObX
 		}
-		try {
-			$PPPresentation.Convert2($Document.FullName)
+		try
+		{
+			if ($OpenWrite)
+			{
+				$PPPresentation.EnsureAllMediaUpgraded()
+				$PPPresentation.Convert2($Document.FullName)
+			}
+			
 		}
-		catch {
-			if ($Debugging.IsPresent) {
+		catch
+		{
+			if ($Debugging.IsPresent)
+			{
 				"$($Document.FullName) | Convert Fail." | Out-File -FilePath $Script:ErrorFile -Append
 			}
 		}
-		try {
+		try
+		{
 			$PPPresentation.SaveCopyAs([System.Object]$SaveName, $SaveFormat)
 		}
-		catch{
+		catch
+		{
 			
 		}
 		$PPPresentation.Close()
-
-		if (($Script:Remove) -and ($?) -and ($CopyExists)) {
+		
+		if (($Script:Remove) -and ($?) -and ($CopyExists))
+		{
 			$DoRemove = $true
 		}
-
 		
-		if ($SaveName -eq "ppSaveAsOpenXMLPresentation") {
-			Set-OriginalTime -NewDocument $ObX -OriginalDocument $PPPresentation
-		}
-		elseif ($SaveName -eq "ppSaveAsOpenXMLPresentationMacroEnabled") {
-			Set-OriginalTime -NewDocument $ObM -OriginalDocument $PPPresentation
-		}
+		Set-OriginalTime -NewDocumentX $ObX -NewDocumentM $ObM -OriginalDocument $PPPresentation
 		
 		Remove-OriginalFile -File $Document -DoRemove $DoRemove
 	}
-	catch {
+	catch
+	{
 		Write-Output "Failure on file $($Document.FullName)"
 		Set-ErrorToLog -File $Document
 	}
-	
+	finally
+	{
+		Remove-Variable -Name SaveName
+	}
 }
 
-function Convert-Visio ($Document, $CopyExists, $SaveName) {
+function Convert-Visio ($Document, $CopyExists)
+{
 	New-Variable -Name DoRemove
 	New-Variable -Name VisDocHasVB
 	
 	$ObX = $Document.ToString() + "x"
-	try {
+	try
+	{
 		$Error.Clear()
 		$VisioDrawing = $Script:VisioApp.Documents.Open($Document.Fullname)
 		Start-SystemPause
 		
-		if (!($VisioDrawing.VBProjectData)) {
+		if (!($VisioDrawing.VBProjectData))
+		{
 			$SaveName = [IO.Path]::ChangeExtension($Document.Name, '.vsdx')
 			$VisioDrawing.SaveAs([System.Object]$SaveName)
 			
-			if (($Script:Remove) -and ($?) -and ($CopyExists)) {
+			if (($Script:Remove) -and ($?) -and ($CopyExists))
+			{
 				$DoRemove = $true
 			}
 			$VisDocHasVB = $False
 		}
-		else {
+		else
+		{
 			$VisDocHasVB = $True
 			
 			#The Visio VBA API is broken and can't set file types on save with VBA. All macro Visio documents must be saved by hand.
@@ -396,66 +488,78 @@ function Convert-Visio ($Document, $CopyExists, $SaveName) {
 		
 		$VisioDrawing.Close();
 		
-		if (!($VisDocHasVB)) {
-			Set-OriginalTime -NewDocument $ObX -OriginalDocument $VisioDrawing
+		if (!($VisDocHasVB))
+		{
+			Set-OriginalTime -NewDocumentX $ObX -OriginalDocument $VisioDrawing
 			
-			Remove-OriginalFile -File $Document -DoRemove $DoRemove
+			Remove-OriginalFile -File $Document -DoRemove $DoRemove | Out-Null
 		}
 		Remove-Variable -Name VisDocHasVB
 	}
-	catch {
+	catch
+	{
 		Write-Output "Failure on file $($Document.FullName)"
 		Set-ErrorToLog -File $Document
 	}
 	
 }
 
-function Move-ToArchive ($OriginalDocument) {
+function Move-ToArchive ($OriginalDocument)
+{
 	$ArchiveFolder = New-Item -Path $OriginalDocument.Directory -ItemType Directory -Force -Name LegacyFileArchive
 	Move-Item -Path $OriginalDocument -Destination $ArchiveFolder -Force
 	Write-Output "Moving $OriginalDocument to $ArchiveFolder"
 }
 
-function Set-ErrorToLog ($File) {
-	if ($Debugging.IsPresent) {
+function Set-ErrorToLog ($File)
+{
+	if ($Debugging.IsPresent)
+	{
 		"`[$(Get-Date -Format "dd-MMM-yyy HH:mm")`] $($File.FullName) `| $($Error.Exception)" | Out-File -FilePath $Script:ErrorFile -Append
 	}
-	else {
+	else
+	{
 		#    "`[$(Get-Date -Format "dd-MMM-yyy HH:mm")`] $($File.FullName) `| $($Error.Exception)" | Out-File -FilePath $Script:ErrorFile -Append
 		"`[$(Get-Date -Format "dd-MMM-yyy HH:mm")`] $($File.FullName) `| $($Error.FullyQualifiedErrorId)" | Out-File -FilePath $Script:ErrorFile -Append
 	}
 }
 
-function Set-PasswordSkipToLog ($Document) {
+function Set-PasswordSkipToLog ($Document)
+{
 	"`[$(Get-Date -Format "dd-MMM-yyy HH:mm")`] $($Document.FullName) `| Skipped due to password protection" | Out-File -FilePath $Script:ErrorFile -Append
 }
 
 #A slight delay between file calls to prevent the script fo
-function Start-SystemPause {
+function Start-SystemPause
+{
 	Start-Sleep -Milliseconds $Delay
 }
 
-function Start-DocumentConversion ($Directory) {
-
+function Start-DocumentConversion ($Directory)
+{
+	
 	Write-Output ""
 	Write-Output "Acquiring Files, please wait..."
 	Write-Output ""
 	#This little line will exclude any files in the LegacyFileArchive folder, so they don't get converted if the script is ran again.
 	[System.Collections.ArrayList]$Documents = Get-ChildItem -Path $Directory -Recurse -File -Include $Script:FileTypeSearch -ErrorAction Ignore | Where-Object { $_.Parent -notlike "LegacyFileArchive" }
-
-
+	
+	
 	#This set of if statements saves some resources by only loading the Office applications that are required by the files found.
 	
-	if ((Test-Path -Path "HKLM:\SOFTWARE\Classes\Applications\Visio.exe") -and ($Documents | Where-Object { $_.Extension -eq ".vsd" })) {
+	if ((Test-Path -Path "HKLM:\SOFTWARE\Classes\Applications\Visio.exe") -and ($Documents | Where-Object { $_.Extension -eq ".vsd" }))
+	{
 		$Script:VisioApp = New-Object -ComObject Visio.Application
 		$Script:VisioApp.Visible = $False
 		$Script:VisioUsed = $True
 	}
-	else {
+	else
+	{
 		$Script:VisioUsed = $False
 	}
 	
-	if ($Documents | Where-Object { $_.Extension -eq ".doc" }) {
+	if ($Documents | Where-Object { $_.Extension -eq ".doc" })
+	{
 		$Script:WordApp = New-Object -ComObject Word.Application
 		$Script:WordApp.Visible = $False
 		
@@ -465,27 +569,33 @@ function Start-DocumentConversion ($Directory) {
 		$Script:WordUsed = $True
 		
 	}
-	else {
+	else
+	{
 		$Script:WordUsed = $False
 	}
 	
-	if ($Documents | Where-Object { $_.Extension -eq ".xls" }) {
+	if ($Documents | Where-Object { $_.Extension -eq ".xls" })
+	{
 		$Script:ExcelApp = New-Object -ComObject Excel.Application
 		$Script:ExcelApp.Visible = $False
 		$Script:ExcelApp.AutomationSecurity = "msoAutomationSecurityForceDisable"
 		$Script:ExcelApp.DisplayAlerts = $False
 		$Script:ExcelUsed = $True
 	}
-	else {
+	else
+	{
 		$Script:ExcelUsed = $False
 	}
 	
-	if ($Documents | Where-Object { $_.Extension -eq ".ppt" }) {
+	if ($Documents | Where-Object { $_.Extension -eq ".ppt" })
+	{
 		$Script:PowerPointApp = New-Object -ComObject PowerPoint.Application
 		$Script:PowerPointApp.AutomationSecurity = "msoAutomationSecurityForceDisable"
+		$Script:PowerPointApp.DisplayAlerts = "ppAlertsNone"
 		$Script:PowerPointUsed = $True
 	}
-	else {
+	else
+	{
 		$Script:PowerPointUsed = $False
 	}
 	Write-Output ""
@@ -494,7 +604,8 @@ function Start-DocumentConversion ($Directory) {
 	Write-Output "Converting Excel: $Script:ExcelUsed"
 	Write-Output "Converting PowerPoint: $Script:PowerPointUsed"
 	
-	if (Test-Path -Path "HKLM:\SOFTWARE\Classes\Applications\Visio.exe") {
+	if (Test-Path -Path "HKLM:\SOFTWARE\Classes\Applications\Visio.exe")
+	{
 		Write-Output "Converting Visio: $Script:VisioUsed"
 	}
 	Write-Output "--------------------------------------------------------"
@@ -505,44 +616,57 @@ function Start-DocumentConversion ($Directory) {
 		
 		$ObX = $_.ToString() + "x"
 		$ObM = $_.ToString() + "m"
-		if ($_.FullName -match '[\[\]]') {
+		if ($_.FullName -match '[\[\]]')
+		{
 			Write-Output "Cannot convert file with  `[ or `] in the name. Skipping $($_.FullName)"
 			"`[$(Get-Date -Format "dd-MMM-yyy HH:mm")`] $($_.FullName) | Has `[ or `] in the name."
-
+			
 		}
-		else {
-			if ((Test-Path $ObX) -Or (Test-Path $ObM)) {
+		else
+		{
+			if ((Test-Path $ObX) -Or (Test-Path $ObM))
+			{
 				$CopyExists = $True
-				Write-Output "$($_.Name) has been upgraded already."
-			}
-			else {
-				if ((Test-Path $ObX) -Or (Test-Path $ObM)) {
-					$CopyExists = $True
+				Write-Output "$($_.FullName) has been upgraded already. Skipping..."
 				
+				Set-OriginalTime -NewDocumentX $ObX -NewDocumentM $ObM -OriginalDocument $_
+				
+			}
+			else
+			{
+				if ((Test-Path $ObX) -Or (Test-Path $ObM))
+				{
+					$CopyExists = $True
 				}
 				Write-Output "Converting $($_.FullName)"
-			
-				$SaveName = ($_.Fullname).Substring(0, ($_.Fullname).LastIndexOf("."))
-			
-				if ($_.Extension -eq ".doc") {
-					Convert-Word -Document $_ -CopyExists $CopyExists -SaveName $SaveName
+				
+				#$SaveName = ($_.Fullname).Substring(0, ($_.Fullname).LastIndexOf("."))
+				
+				if ($_.Extension -eq ".doc")
+				{
+					Convert-Word -Document $_ -CopyExists $CopyExists
 				}
-				elseif ($_.Extension -eq ".xls") {
-					Convert-Excel -Document $_ -CopyExists $CopyExists -SaveName $SaveName
+				elseif ($_.Extension -eq ".xls")
+				{
+					Convert-Excel -Document $_ -CopyExists $CopyExists
 				}
-				elseif ($_.Extension -eq ".ppt") {
-					Convert-PowerPoint -Document $_ -CopyExists $CopyExists -SaveName $SaveName
+				elseif ($_.Extension -eq ".ppt")
+				{
+					Convert-PowerPoint -Document $_ -CopyExists $CopyExists
 				}
-				elseif ($_.Extension -eq ".vsd") {
-					Convert-Visio -Document $_ -CopyExists $CopyExists -SaveName $SaveName
+				elseif ($_.Extension -eq ".vsd")
+				{
+					Convert-Visio -Document $_ -CopyExists $CopyExists
 				}
-			
+				
 			}
-	
-			if (($Script:DoArchive) -and ($CopyExists)) {
+			
+			if (($Script:DoArchive) -and ($CopyExists))
+			{
 				Move-ToArchive -OriginalDocument $_
 			}
-			if (($Script:Remove) -and ($CopyExists)) {
+			if (($Script:Remove) -and ($CopyExists))
+			{
 				Remove-OriginalFile -File $_ -DoRemove $True
 			}
 		}
@@ -560,41 +684,52 @@ Write-Output "Legacy Office File Converter"
 Write-Output ""
 Write-Output "--------------------------------------------------------"
 Write-Output "This will recursively search all folders inside your directory and convert them."
+Write-Output "**NOTE: Password Protected powerpoint will fail and wait for you to click cancel**"
 
-if (Test-Path -Path "HKLM:\SOFTWARE\Classes\Applications\Visio.exe") {
+if (Test-Path -Path "HKLM:\SOFTWARE\Classes\Applications\Visio.exe")
+{
 	Write-Output "The Visio window may flash if it needs to be used. All VBA-Enabled Visio documents must be saved by hand."
 }
 
-if ([string]::IsNullOrEmpty($Directory)) {
+if ([string]::IsNullOrEmpty($Directory))
+{
 	Write-Output "--------------------------------------------------------"
 	Write-Output ""
 	$Directory = Read-Host "What is the Directory? (If none is inputted, it will run where this application is currently is at)"
 	
-	if ([string]::IsNullOrWhiteSpace($Directory)) {
+	if ([string]::IsNullOrWhiteSpace($Directory))
+	{
 		$Script:Directory = $pwd
 	}
 	
-	if (!($Archive.IsPresent)) {
+	if (!($Archive.IsPresent))
+	{
 		Start-ArchivePrompt
 	}
-	if (!($RemoveOriginal.IsPresent) -and !($script:DoArchive)) {
+	if (!($RemoveOriginal.IsPresent) -and !($script:DoArchive))
+	{
 		Start-RemovePrompt
 	}
 	
-	if ($RemoveOriginal.IsPresent) {
+	if ($RemoveOriginal.IsPresent)
+	{
 		$Script:Remove = $True
 	}
-	elseif (($Archive.IsPresent)) {
+	elseif (($Archive.IsPresent))
+	{
 		$Script:DoArchive = $True
 	}
 	
 	$Script:InteractiveMode = $True
 }
-else {
-	if ($RemoveOriginal.IsPresent) {
+else
+{
+	if ($RemoveOriginal.IsPresent)
+	{
 		$Script:Remove = $True
 	}
-	elseif (($Archive.IsPresent)) {
+	elseif (($Archive.IsPresent))
+	{
 		$Script:DoArchive = $True
 	}
 }
@@ -602,55 +737,66 @@ else {
 $Script:ErrorFile = "$Directory\$(Get-Date -Format "dd-MMM-yyy HHmm") Conversion Failures.txt"
 
 #If Visio is installed it will include visio file types in the search.
-if (Test-Path -Path "HKLM:\SOFTWARE\Classes\Applications\Visio.exe") {
+if (Test-Path -Path "HKLM:\SOFTWARE\Classes\Applications\Visio.exe")
+{
 	$Script:FileTypeSearch = @("*.xls", "*.doc", "*.ppt", "*.vsd")
 }
-else {
+else
+{
 	$Script:FileTypeSearch = @("*xls", "*doc", "*ppt")
 }
 
-try {
+try
+{
 	Start-DocumentConversion -Directory $Directory
 	
-	if (Start-InteractivePrompt) {
+	if (Start-InteractivePrompt)
+	{
 		Write-Output "--------------------------------------------------------"
 		Write-Output ""
 		$NewDir = Read-Host "What is the new Directory?"
 		Start-DocumentConversion -Directory $NewDir
 	}
-
-		
+	
+	
 	
 }
 
 #Closes all the opened objects so there is no application left hanging after completion.
-finally {
+finally
+{
 	
-	if ($Script:VisioUsed) {
+	if ($Script:VisioUsed)
+	{
 		$Script:VisioApp.quit()
 		[System.Runtime.Interopservices.Marshal]::ReleaseComObject($Script:VisioApp) | Out-Null
 		Remove-Variable -Name VisioApp
 	}
 	
-	if ($Script:WordUsed) {
+	if ($Script:WordUsed)
+	{
 		$Script:WordApp.Quit()
 		[System.Runtime.Interopservices.Marshal]::ReleaseComObject($Script:WordApp) | Out-Null
 		Remove-Variable -Name WordApp
 	}
-	if ($Script:ExcelUsed) {
+	if ($Script:ExcelUsed)
+	{
 		$Script:ExcelApp.Quit()
 		[System.Runtime.Interopservices.Marshal]::ReleaseComObject($Script:ExcelApp) | Out-Null
 		Remove-Variable -Name ExcelApp
 	}
-	if ($Script:PowerPointUsed) {
+	if ($Script:PowerPointUsed)
+	{
 		$Script:PowerPointApp.Quit()
 		[System.Runtime.Interopservices.Marshal]::ReleaseComObject($Script:PowerPointApp) | Out-Null
 		Remove-Variable -Name PowerPointApp
 	}
 	
-	if (Test-Path $script:ErrorFile) {
+	if (Test-Path $script:ErrorFile)
+	{
 		Write-Output "There were errors in the conversion.  The error file is located here: $script:ErrorFile"
-		if ($script:InteractiveMode) {
+		if ($script:InteractiveMode)
+		{
 			Read-Host "Press enter to continue..."
 		}
 	}
