@@ -8,24 +8,21 @@
 		.\Start-LegacyOfficeConversion.ps1 -Directory "C:\Users\Public\Documents" -Archive -Delay 200
 
 	.DESCRIPTION
-		Converts Legacy Office files to the upgraded format
-		The new files will set the creation date and modified date to the original times
-		If the files are macro enabled it will save it as the new file type execpt a Macro enabled file
-		It will recursively search all subfolders and create a new upgraded copy of the file next to it
+		Converts Legacy Office files to the upgraded format. If it is macro enabled it will save it as that execpt Macro enabled file. It will recursively search all subfolders and create a new upgraded copy of the file next to it. This script will also set the creation date and modified date to the original times.
 	
-	.PARAMETER --Directory
+	.PARAMETER Directory
 		Put the Directory Path here.
 	
-	.PARAMETER --RemoveOriginal
+	.PARAMETER RemoveOriginal
 		If this switch is set, it will remove the original document after conversion. This is mutually exclusive with the Archive Switch.
 
-	.PARAMETER --Archive
+	.PARAMETER Archive
 		If this switch is set, it will move the original document to a subfolder after conversion. This is mutually exclusive with the RemoveOriginal Switch.
 
-    .PARAMETER --Delay
+    .PARAMETER Delay
 		This sets a delay in milliseconds for every file, it allows office to catchup if you are getting a lot of errors like "This Command is not available." The Default is 100 milliseconds.
 
-    .PARAMETER --Debugging
+    .PARAMETER Debugging
         Adds additional information to the log file.
 #>
 [cmdletbinding(DefaultParameterSetName = 'None')]
@@ -304,7 +301,7 @@ function Convert-Word($Document, $CopyExists)
 		}
 		try
 		{
-			$WordDocument.SaveAs2([System.Object]$SaveName, $SaveFormat)
+			$WordDocument.SaveAs2("$SaveName", $SaveFormat)
 		}
 		catch
 		{
@@ -541,7 +538,7 @@ function Start-DocumentConversion ($Directory)
 	Write-Output "Acquiring Files, please wait..."
 	Write-Output ""
 	#This little line will exclude any files in the LegacyFileArchive folder, so they don't get converted if the script is ran again.
-	[System.Collections.ArrayList]$Documents = Get-ChildItem -Path $Directory -Recurse -File -Include $Script:FileTypeSearch -ErrorAction Ignore | Where-Object { $_.Parent -notlike "LegacyFileArchive" }
+	[System.Collections.ArrayList]$Documents = Get-ChildItem -Path $Directory -Recurse -File -Include $Script:FileTypeSearch -ErrorAction Ignore | Where-Object { $_.Directory.Name -notlike "LegacyFileArchive" }
 	
 	
 	#This set of if statements saves some resources by only loading the Office applications that are required by the files found.
@@ -611,6 +608,7 @@ function Start-DocumentConversion ($Directory)
 	Write-Output ""
 	
 	$Documents | ForEach-Object -Process {
+		New-Variable -Name CopyExists
 		
 		$ObX = $_.ToString() + "x"
 		$ObM = $_.ToString() + "m"
@@ -667,6 +665,7 @@ function Start-DocumentConversion ($Directory)
 			{
 				Remove-OriginalFile -File $_ -DoRemove $True
 			}
+		}
 		Remove-Variable -Name CopyExists
 	}
 	[gc]::collect()
@@ -691,7 +690,7 @@ if ([string]::IsNullOrEmpty($Directory))
 {
 	Write-Output "--------------------------------------------------------"
 	Write-Output ""
-	$Directory = Read-Host "What is the Directory? (If no input is given, will run where this application is currently located)"
+	$Directory = Read-Host "What is the Directory? (If none is inputted, it will run where this application is currently is at)"
 	
 	if ([string]::IsNullOrWhiteSpace($Directory))
 	{
