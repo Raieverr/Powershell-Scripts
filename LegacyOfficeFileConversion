@@ -27,7 +27,6 @@
 
     .PARAMETER --Debugging
         Adds additional information to the log file.
-
 #>
 [cmdletbinding(DefaultParameterSetName = 'None')]
 param
@@ -268,7 +267,7 @@ function Convert-Word($Document, $CopyExists)
 		$Error.Clear()
 		try
 		{
-			$WordDocument = $Script:WordApp.Documents.Open($Document.Fullname, $false, $true, $false, "")
+			$WordDocument = $Script:WordApp.Documents.Open("$($Document.Fullname)", $false, $true, $false, "")
 			Start-SystemPause
 		}
 		catch
@@ -612,7 +611,6 @@ function Start-DocumentConversion ($Directory)
 	Write-Output ""
 	
 	$Documents | ForEach-Object -Process {
-		New-Variable -Name CopyExists
 		
 		$ObX = $_.ToString() + "x"
 		$ObM = $_.ToString() + "m"
@@ -669,7 +667,6 @@ function Start-DocumentConversion ($Directory)
 			{
 				Remove-OriginalFile -File $_ -DoRemove $True
 			}
-		}
 		Remove-Variable -Name CopyExists
 	}
 	[gc]::collect()
@@ -681,10 +678,9 @@ function Start-DocumentConversion ($Directory)
 
 Write-Output ""
 Write-Output "Legacy Office File Converter"
-Write-Output ""
 Write-Output "--------------------------------------------------------"
-Write-Output "This will recursively search all folders inside your directory and convert them."
-Write-Output "**NOTE: Password Protected powerpoint will fail and wait for you to click cancel**"
+Write-Output "This will recursively search all folders inside the selected directory and convert them."
+Write-Output "Note: Password Protected Powerpoints will fail and wait for you to click cancel on the prompt."
 
 if (Test-Path -Path "HKLM:\SOFTWARE\Classes\Applications\Visio.exe")
 {
@@ -695,7 +691,7 @@ if ([string]::IsNullOrEmpty($Directory))
 {
 	Write-Output "--------------------------------------------------------"
 	Write-Output ""
-	$Directory = Read-Host "What is the Directory? (If none is inputted, it will run where this application is currently is at)"
+	$Directory = Read-Host "What is the Directory? (If no input is given, will run where this application is currently located)"
 	
 	if ([string]::IsNullOrWhiteSpace($Directory))
 	{
